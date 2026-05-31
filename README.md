@@ -24,14 +24,3 @@ open UsageBar.app
 ```
 
 The app is ad-hoc signed. macOS may require right-clicking the app and choosing **Open** the first time.
-
-## Release
-
-Create and push a version tag:
-
-```sh
-git tag -a v1.0.0 -m "UsageBar v1.0.0"
-git push origin v1.0.0
-```
-
-GitHub Actions will build the app, zip it, and attach it to a GitHub Release.
