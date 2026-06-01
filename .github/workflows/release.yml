@@ -28,4 +28,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "UsageBar-${GITHUB_REF_NAME}.zip" \
             --title "UsageBar ${GITHUB_REF_NAME}" \
-            --notes "Initial release."
+            --generate-notes
