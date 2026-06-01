@@ -8,6 +8,7 @@ final class UsageStore {
 
     private var lastFetched: [AIProvider: Date] = [:]
     private var lastStatusFetched: [AIProvider: Date] = [:]
+    private var statusBackoffUntil: [AIProvider: Date] = [:]
     private var blockedUntil: [AIProvider: Date] = [:]
     private var inFlight: Set<AIProvider> = []
 
@@ -65,10 +66,14 @@ final class UsageStore {
                         lastFetched[item.provider] = Date()
                     }
                 }
-                if let status = item.status {
-                    providers[item.index].serviceStatus = status
-                    if item.fetchedStatus {
+                if item.fetchedStatus {
+                    if let status = item.status {
+                        providers[item.index].serviceStatus = status
                         lastStatusFetched[item.provider] = Date()
+                        statusBackoffUntil[item.provider] = nil
+                    } else {
+                        // Transient failure: keep the last known status and retry sooner.
+                        statusBackoffUntil[item.provider] = Date().addingTimeInterval(ProviderStatusFetcher.failureRetryInterval)
                     }
                 }
             }
@@ -102,6 +107,7 @@ final class UsageStore {
     private func shouldFetchStatus(_ provider: AIProvider, now: Date, force: Bool) -> Bool {
         if inFlight.contains(provider) { return false }
         if force { return true }
+        if let backoff = statusBackoffUntil[provider], now < backoff { return false }
         guard let last = lastStatusFetched[provider] else { return true }
         return now.timeIntervalSince(last) >= ProviderStatusFetcher.minInterval
     }
@@ -114,7 +120,14 @@ final class UsageStore {
 
             let intervalDate = lastFetched[provider]?.addingTimeInterval(provider.minInterval) ?? now
             let usageDate = blockedUntil[provider].map { max($0, intervalDate) } ?? intervalDate
-            let statusDate = lastStatusFetched[provider]?.addingTimeInterval(ProviderStatusFetcher.minInterval) ?? now
+            let statusDate: Date
+            if let backoff = statusBackoffUntil[provider] {
+                statusDate = backoff
+            } else if let last = lastStatusFetched[provider] {
+                statusDate = last.addingTimeInterval(ProviderStatusFetcher.minInterval)
+            } else {
+                statusDate = now
+            }
             return [usageDate, statusDate]
         }
 

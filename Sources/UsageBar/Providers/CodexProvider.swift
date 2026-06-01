@@ -5,17 +5,20 @@ enum CodexProvider {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/auth.json")
     }
 
-    private struct Auth: Codable {
-        struct Tokens: Codable {
+    private struct Auth: Decodable {
+        struct Tokens: Decodable {
             var access_token: String
             var refresh_token: String?
             var account_id: String?
             var id_token: String?
         }
         var tokens: Tokens
-        var OPENAI_API_KEY: String?
-        var auth_mode: String?
-        var last_refresh: String?
+    }
+
+    private struct RefreshedTokens {
+        let accessToken: String
+        let refreshToken: String?
+        let idToken: String?
     }
 
     private struct UsageResponse: Decodable {
@@ -43,10 +46,14 @@ enum CodexProvider {
 
         if result.state == .authExpired,
            let refresh = auth.tokens.refresh_token,
-           let newToken = await refreshAccessToken(refresh) {
-            auth.tokens.access_token = newToken
-            persistAuth(auth)
-            result = await request(token: newToken, accountId: auth.tokens.account_id)
+           let refreshed = await refreshAccessToken(refresh) {
+            auth.tokens.access_token = refreshed.accessToken
+            // The refresh endpoint rotates the refresh token; persist the new one or the next
+            // refresh (ours or the codex CLI's) fails.
+            if let newRefresh = refreshed.refreshToken { auth.tokens.refresh_token = newRefresh }
+            if let newID = refreshed.idToken { auth.tokens.id_token = newID }
+            persistRefreshedTokens(auth.tokens)
+            result = await request(token: auth.tokens.access_token, accountId: auth.tokens.account_id)
         }
         return result
     }
@@ -74,7 +81,7 @@ enum CodexProvider {
 
     private static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
-    private static func refreshAccessToken(_ refreshToken: String) async -> String? {
+    private static func refreshAccessToken(_ refreshToken: String) async -> RefreshedTokens? {
         var req = URLRequest(url: URL(string: "https://auth.openai.com/oauth/token")!)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -90,11 +97,30 @@ enum CodexProvider {
               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let token = json["access_token"] as? String
         else { return nil }
-        return token
+        return RefreshedTokens(
+            accessToken: token,
+            refreshToken: json["refresh_token"] as? String,
+            idToken: json["id_token"] as? String
+        )
     }
 
-    private static func persistAuth(_ auth: Auth) {
-        guard let data = try? JSONEncoder().encode(auth) else { return }
-        try? data.write(to: authURL, options: .atomic)
+    /// Merge refreshed tokens into the existing auth.json instead of re-encoding our own model, so we
+    /// never drop keys the codex CLI relies on (including ones we don't model). Also bump last_refresh.
+    private static func persistRefreshedTokens(_ tokens: Auth.Tokens) {
+        guard let data = try? Data(contentsOf: authURL),
+              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return }
+
+        var tokenDict = (json["tokens"] as? [String: Any]) ?? [:]
+        tokenDict["access_token"] = tokens.access_token
+        if let refresh = tokens.refresh_token { tokenDict["refresh_token"] = refresh }
+        if let idToken = tokens.id_token { tokenDict["id_token"] = idToken }
+        if let accountId = tokens.account_id { tokenDict["account_id"] = accountId }
+        json["tokens"] = tokenDict
+        json["last_refresh"] = ISO8601DateFormatter().string(from: Date())
+
+        guard let output = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        else { return }
+        try? output.write(to: authURL, options: .atomic)
     }
 }

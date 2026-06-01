@@ -2,7 +2,12 @@ import Foundation
 
 enum ProviderStatusFetcher {
     static let minInterval: TimeInterval = 900
+    /// Retry sooner than `minInterval` after a transient failure (e.g. no network yet at login)
+    /// so the status doesn't stay blank for the full 15 minutes.
+    static let failureRetryInterval: TimeInterval = 60
 
+    /// Returns `nil` on a transient failure (network error or non-200) so the caller keeps the last
+    /// known status and retries soon, rather than surfacing a misleading "unknown".
     static func fetch(for provider: AIProvider) async -> ServiceStatus? {
         guard let source = provider.statusSource else { return nil }
         var req = URLRequest(url: source.apiURL)
@@ -11,9 +16,7 @@ enum ProviderStatusFetcher {
 
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-                return ServiceStatus(providerName: source.label, level: .unknown, detail: nil, updatedAt: nil)
-            }
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
 
             let decoded = try decoder.decode(StatusPageResponse.self, from: data)
             return ServiceStatus(
@@ -23,7 +26,7 @@ enum ProviderStatusFetcher {
                 updatedAt: decoded.page?.updatedAt
             )
         } catch {
-            return ServiceStatus(providerName: source.label, level: .unknown, detail: nil, updatedAt: nil)
+            return nil
         }
     }
 

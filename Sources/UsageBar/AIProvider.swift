@@ -44,11 +44,11 @@ enum AIProvider: String, CaseIterable, Hashable, Sendable {
         return [provider]
     }
 
-    /// `secrets` supplies keychain credentials for Claude and Cursor. Codex ignores it.
+    /// `secrets` supplies the Cursor token. Codex and Claude read their own credentials directly.
     func fetchUsage(secrets: ProviderSecrets) async -> ProviderUsage {
         switch self {
         case .codex: return await CodexProvider.fetch()
-        case .claude: return await ClaudeProvider.fetch(rawCredentials: secrets.claudeCredentials)
+        case .claude: return await ClaudeProvider.fetch()
         case .cursor: return await CursorProvider.fetch(token: secrets.cursorToken)
         }
     }

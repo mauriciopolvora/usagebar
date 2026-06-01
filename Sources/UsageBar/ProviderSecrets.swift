@@ -1,12 +1,11 @@
 import Foundation
 
-/// Keychain-backed credentials passed into provider fetches. Codex reads `~/.codex/auth.json` directly
-/// and does not use this bundle.
+/// Keychain-backed credentials passed into provider fetches. Codex reads `~/.codex/auth.json` and
+/// Claude reads its keychain item (`Claude Code-credentials`) directly, so neither uses this bundle.
 struct ProviderSecrets: Sendable {
     let cursorToken: String?
-    let claudeCredentials: String?
 
-    static let empty = ProviderSecrets(cursorToken: nil, claudeCredentials: nil)
+    static let empty = ProviderSecrets(cursorToken: nil)
 
     static func load(
         for providers: some Sequence<AIProvider>,
@@ -24,9 +23,6 @@ struct ProviderSecrets: Sendable {
         } else {
             cursorToken = nil
         }
-        let claudeCredentials = usageProviders.contains(.claude)
-            ? Keychain.cachedGenericPassword(service: Keychain.claudeService)
-            : nil
-        return ProviderSecrets(cursorToken: cursorToken, claudeCredentials: claudeCredentials)
+        return ProviderSecrets(cursorToken: cursorToken)
     }
 }
